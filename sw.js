@@ -1,4 +1,6 @@
-const CACHE_NAME = 'aircraft-calc-v3';
+
+const CACHE_NAME = 'aircraft-calc-v4';
+
 const ASSETS = [
   './',
   './index.html',
@@ -6,44 +8,79 @@ const ASSETS = [
   './icon.svg'
 ];
 
-// Install event: cache core assets immediately
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
-  self.skipWaiting();
-});
+// INSTALL
+self.addEventListener('install', event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
 
-// Activate event: clear old caches and take control instantly
-self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.map((key) => {
-          if (key !== CACHE_NAME) {
-            return caches.delete(key);
-          }
-        })
-      );
-    })
-  );
-  self.clients.claim();
-});
+    // الصفحة الرئيسية ضرورية
+    await cache.add('./index.html');
 
-// Fetch event: Serve from cache, fallback to index.html for page navigation
-self.addEventListener('fetch', (event) => {
-  if (event.request.mode === 'navigate') {
-    event.respondWith(
-      caches.match('./index.html').then((response) => {
-        return response || fetch(event.request);
-      }).catch(() => caches.match('./index.html'))
+    // الملفات الإضافية
+    await Promise.allSettled(
+      ASSETS
+        .filter(file => file !== './index.html')
+        .map(file => cache.add(file))
     );
-    return;
-  }
 
-  event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      return cachedResponse || fetch(event.request);
-    })
-  );
+    await self.skipWaiting();
+  })());
+});
+
+// ACTIVATE
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+
+    await Promise.all(
+      keys
+        .filter(key =>
+          key.startsWith('aircraft-calc-') &&
+          key !== CACHE_NAME
+        )
+        .map(key => caches.delete(key))
+    );
+
+    await self.clients.claim();
+  })());
+});
+
+// FETCH
+self.addEventListener('fetch', event => {
+  const request = event.request;
+
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith((async () => {
+    const cache = await caches.open(CACHE_NAME);
+
+    if (request.mode === 'navigate') {
+      try {
+        const response = await fetch(request);
+
+        if (response.ok) {
+          await cache.put('./index.html', response.clone());
+        }
+
+        return response;
+      } catch {
+        return await cache.match(request) ||
+               await cache.match('./index.html');
+      }
+    }
+
+    const cached = await cache.match(request);
+
+    if (cached) return cached;
+
+    try {
+      return await fetch(request);
+    } catch {
+      return new Response('', { status: 503 });
+    }
+  })());
 });
