@@ -475,12 +475,32 @@ $("resetNav").onclick = () => {
 
 $("calculateFlight").onclick = calcFlight;
 
-// Register Service Worker for offline use
+
+// Register Service Worker for Offline Support
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("./sw.js").catch(() => {});
+  window.addEventListener("load", async () => {
+    try {
+      const registration = await navigator.serviceWorker.register(
+        "./sw.js",
+        { scope: "./" }
+      );
+
+      await navigator.serviceWorker.ready;
+
+      console.log("Offline Service Worker Ready");
+
+      if (navigator.serviceWorker.controller) {
+        console.log("App is controlled and ready for offline use.");
+      } else {
+        console.log("Reload once to activate offline control.");
+      }
+
+    } catch (error) {
+      console.error("Offline registration failed:", error);
+    }
   });
 }
+
 </script>
 </body>
 </html>
