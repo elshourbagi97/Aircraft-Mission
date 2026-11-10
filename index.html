@@ -97,7 +97,7 @@ h2 {
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 label { font-weight: 600; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Uniform Input & Select Height & 16px font to strictly prevent iOS Safari auto-zoom */
+/* Uniform Input & Select Height & 16px font to prevent iOS Safari auto-zoom */
 input[type="text"], input[type="number"], select { 
   width: 100% !important; 
   height: 46px !important;
@@ -106,7 +106,7 @@ input[type="text"], input[type="number"], select {
   border-radius: 10px !important; 
   background: var(--input-bg) !important; 
   color: var(--text-main) !important; 
-  font-size: 16px !important; /* قفل حجم الخط لمنع الزوم تماماً في الأيفون */
+  font-size: 16px !important; 
   font-weight: 700 !important; 
   text-align: center !important;
   transition: all 0.2s ease;
@@ -357,11 +357,11 @@ select {
       </div>
       <div class="field">
         <label for="remainingFuel">Reserve Fuel</label>
-        <input id="remainingFuel" type="text" inputmode="decimal" pattern="[0-9]*" placeholder="0">
+        <input id="remainingFuel" type="text" inputmode="decimal" placeholder="0">
       </div>
       <div class="field">
         <label for="workTime">Work Time</label>
-        <input id="workTime" type="text" inputmode="decimal" pattern="[0-9]*" placeholder="0">
+        <input id="workTime" type="text" inputmode="decimal" placeholder="0">
       </div>
     </div>
   </div>
@@ -400,7 +400,7 @@ select {
       <strong id="fuelAfter">—</strong>
     </div>
     <div class="summary-row">
-      <span>Fuel Status:</span>
+      <span>Fuel & Weight Status:</span>
       <strong id="fuelStatusText">—</strong>
     </div>
   </div>
@@ -447,8 +447,8 @@ Object.entries(aircraftWeights).forEach(([no, w]) => {
   $("aircraft").appendChild(opt);
 });
 
-// Weight Calculation using exact 2.205 factor
-function calcWeight() {
+// Calculate current Total Weight & MTOW comparison
+function getCurrentWeightInfo() {
   let key = $("airport").value;
   let mtow = airports[key] ? airports[key].mtow : 1191;
   let no = $("aircraft").value;
@@ -456,16 +456,30 @@ function calcWeight() {
   let fuelL = Number($("weightFuelLitres").value) || 0;
   let extra = Number($("extra").value) || 0;
   
-  if (w) {
-    let totalKg = w + (fuelL * 0.76) + extra;
-    let totalLb = totalKg * 2.205;
-    
-    $("totalKg").textContent = fmt(totalKg, 2) + " kg";
+  if (!w) return { hasAircraft: false, totalKg: 0, mtow: mtow, isOverweight: false, diff: 0 };
+  
+  let totalKg = w + (fuelL * 0.76) + extra;
+  return {
+    hasAircraft: true,
+    totalKg: totalKg,
+    mtow: mtow,
+    isOverweight: totalKg > mtow,
+    diff: totalKg - mtow
+  };
+}
+
+// Weight Calculation UI Update
+function calcWeight() {
+  let info = getCurrentWeightInfo();
+  
+  if (info.hasAircraft) {
+    let totalLb = info.totalKg * 2.205;
+    $("totalKg").textContent = fmt(info.totalKg, 2) + " kg";
     $("totalLb").textContent = fmt(totalLb, 2) + " lb";
     
-    if (totalKg > mtow) {
+    if (info.isOverweight) {
       $("weightStatus").style.color = "#ef4444";
-      $("weightStatus").textContent = `Warning: Weight exceeds MTOW by ${fmt(totalKg - mtow, 2)} kg!`;
+      $("weightStatus").textContent = `Warning: Weight exceeds MTOW by ${fmt(info.diff, 2)} kg!`;
     } else {
       $("weightStatus").style.color = "#10b981";
       $("weightStatus").textContent = "Weight within MTOW limits.";
@@ -550,14 +564,26 @@ function calcFlight() {
 
   $("fuelAfter").textContent = fmt(remFuel, 2) + " Liters";
 
-  if (remFuel < 0 || availFuel === 0) {
+  // فحص حالة الوقود وحالة الوزن معاً
+  let weightInfo = getCurrentWeightInfo();
+  let isFuelBad = remFuel < 0 || availFuel === 0;
+
+  if (isFuelBad && weightInfo.isOverweight) {
+    $("fuelAfter").className = "status-bad";
+    $("fuelStatusText").className = "status-bad";
+    $("fuelStatusText").textContent = "Warning: Insufficient Fuel & Over Weight!";
+  } else if (isFuelBad) {
     $("fuelAfter").className = "status-bad";
     $("fuelStatusText").className = "status-bad";
     $("fuelStatusText").textContent = "Warning: Insufficient Fuel!";
+  } else if (weightInfo.isOverweight) {
+    $("fuelAfter").className = "";
+    $("fuelStatusText").className = "status-bad";
+    $("fuelStatusText").textContent = `Warning: Over Weight by ${fmt(weightInfo.diff, 1)} kg!`;
   } else {
     $("fuelAfter").className = "";
     $("fuelStatusText").className = "status-good";
-    $("fuelStatusText").textContent = "Fuel Flight OK";
+    $("fuelStatusText").textContent = "Fuel & Weight OK";
   }
 }
 
@@ -577,9 +603,9 @@ $("navTab").onclick = () => {
 };
 
 // Weight Inputs Listeners
-$("airport").onchange = calcWeight;
-$("aircraft").onchange = calcWeight;
-$("extra").onchange = calcWeight;
+$("airport").onchange = () => { calcWeight(); calcFlight(); };
+$("aircraft").onchange = () => { calcWeight(); calcFlight(); };
+$("extra").onchange = () => { calcWeight(); calcFlight(); };
 $("weightFuelLitres").oninput = (e) => {
   $("totalFuel").value = e.target.value;
   calcWeight();
@@ -593,6 +619,7 @@ $("resetWeight").onclick = () => {
   $("weightFuelLitres").value = "";
   $("extra").value = "0";
   calcWeight();
+  calcFlight();
 };
 
 // Sync Fuel Inputs
